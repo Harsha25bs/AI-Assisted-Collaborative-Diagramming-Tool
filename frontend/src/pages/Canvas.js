@@ -23,10 +23,16 @@ const Canvas = () => {
   const { currentUser } = useAuth();
   const canvasRef = useRef(null);
   const [canvas, setCanvas] = useState(null);
-  const [selectedTool, setSelectedTool] = useState('select');
+  const [selectedTool, setSelectedTool] = useState('draw');
   const [isDrawing, setIsDrawing] = useState(false);
   const [collaborators, setCollaborators] = useState([]);
   const [showCollaborators, setShowCollaborators] = useState(false);
+  const [drawingHistory, setDrawingHistory] = useState([]);
+  const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
+  const [drawingColor, setDrawingColor] = useState('#000000');
+  const [strokeWidth, setStrokeWidth] = useState(2);
+  const [startPoint, setStartPoint] = useState(null);
+  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
 
   // Mock collaborators data
   useEffect(() => {
@@ -40,32 +46,208 @@ const Canvas = () => {
   // Initialize canvas when component mounts
   useEffect(() => {
     if (canvasRef.current && !canvas) {
-      // Initialize basic canvas (you'll integrate Fabric.js here later)
-      const ctx = canvasRef.current.getContext('2d');
+      const canvasElement = canvasRef.current;
+      const ctx = canvasElement.getContext('2d');
+      
+      // Set canvas size
+      canvasElement.width = 1200;
+      canvasElement.height = 800;
+      
+      // Initialize with white background
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      ctx.fillRect(0, 0, canvasElement.width, canvasElement.height);
       
       // Add grid
-      ctx.strokeStyle = '#f0f0f0';
-      ctx.lineWidth = 1;
+      drawGrid(ctx);
       
-      // Vertical lines
-      for (let x = 0; x <= canvasRef.current.width; x += 20) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvasRef.current.height);
-        ctx.stroke();
-      }
+      setCanvas(canvasElement);
       
-      // Horizontal lines
-      for (let y = 0; y <= canvasRef.current.height; y += 20) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvasRef.current.width, y);
-        ctx.stroke();
-      }
+      // Save initial state
+      saveCanvasState();
     }
   }, [canvas]);
+
+  const drawGrid = (ctx) => {
+    ctx.strokeStyle = '#f0f0f0';
+    ctx.lineWidth = 1;
+    
+    // Vertical lines
+    for (let x = 0; x <= 1200; x += 20) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, 800);
+      ctx.stroke();
+    }
+    
+    // Horizontal lines
+    for (let y = 0; y <= 800; y += 20) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(1200, y);
+      ctx.stroke();
+    }
+  };
+
+  // Improved coordinate calculation function
+  const getCanvasCoordinates = (e) => {
+    if (!canvasRef.current) return { x: 0, y: 0 };
+    
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    
+    // Get the scale factors between CSS pixels and canvas pixels
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    // Calculate the mouse position relative to the canvas element
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+    
+    // Ensure coordinates are within canvas bounds
+    return {
+      x: Math.max(0, Math.min(x, canvas.width)),
+      y: Math.max(0, Math.min(y, canvas.height))
+    };
+  };
+
+  const saveCanvasState = () => {
+    if (canvasRef.current) {
+      const imageData = canvasRef.current.toDataURL();
+      const newHistory = drawingHistory.slice(0, currentHistoryIndex + 1);
+      newHistory.push(imageData);
+      setDrawingHistory(newHistory);
+      setCurrentHistoryIndex(newHistory.length - 1);
+    }
+  };
+
+  const handleMouseDown = (e) => {
+    if (!canvasRef.current) return;
+    
+    const coords = getCanvasCoordinates(e);
+    setIsDrawing(true);
+    setStartPoint(coords);
+    
+    if (selectedTool === 'draw') {
+      const ctx = canvasRef.current.getContext('2d');
+      ctx.beginPath();
+      ctx.moveTo(coords.x, coords.y);
+      ctx.strokeStyle = drawingColor;
+      ctx.lineWidth = strokeWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    if (!canvasRef.current) return;
+    
+    const coords = getCanvasCoordinates(e);
+    setCursorPosition(coords);
+    
+    if (!isDrawing) return;
+    
+    if (selectedTool === 'draw') {
+      const ctx = canvasRef.current.getContext('2d');
+      ctx.lineTo(coords.x, coords.y);
+      ctx.stroke();
+    }
+  };
+
+  const handleMouseUp = (e) => {
+    if (!isDrawing || !canvasRef.current) return;
+    
+    const coords = getCanvasCoordinates(e);
+    
+    if (selectedTool === 'draw') {
+      const ctx = canvasRef.current.getContext('2d');
+      ctx.lineTo(coords.x, coords.y);
+      ctx.stroke();
+      ctx.closePath();
+    } else if (selectedTool === 'line' && startPoint) {
+      drawLine(startPoint.x, startPoint.y, coords.x, coords.y);
+    } else if (selectedTool === 'rectangle' && startPoint) {
+      drawRectangle(startPoint.x, startPoint.y, coords.x, coords.y);
+    } else if (selectedTool === 'circle' && startPoint) {
+      drawCircle(startPoint.x, startPoint.y, coords.x, coords.y);
+    }
+    
+    setIsDrawing(false);
+    setStartPoint(null);
+    saveCanvasState();
+  };
+
+  const drawLine = (x1, y1, x2, y2) => {
+    if (!canvasRef.current) return;
+    const ctx = canvasRef.current.getContext('2d');
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = drawingColor;
+    ctx.lineWidth = strokeWidth;
+    ctx.stroke();
+  };
+
+  const drawRectangle = (x1, y1, x2, y2) => {
+    if (!canvasRef.current) return;
+    const ctx = canvasRef.current.getContext('2d');
+    const width = x2 - x1;
+    const height = y2 - y1;
+    
+    ctx.strokeStyle = drawingColor;
+    ctx.lineWidth = strokeWidth;
+    ctx.strokeRect(x1, y1, width, height);
+  };
+
+  const drawCircle = (x1, y1, x2, y2) => {
+    if (!canvasRef.current) return;
+    const ctx = canvasRef.current.getContext('2d');
+    const radius = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    
+    ctx.beginPath();
+    ctx.arc(x1, y1, radius, 0, 2 * Math.PI);
+    ctx.strokeStyle = drawingColor;
+    ctx.lineWidth = strokeWidth;
+    ctx.stroke();
+  };
+
+  const handleUndo = () => {
+    if (currentHistoryIndex > 0) {
+      const newIndex = currentHistoryIndex - 1;
+      setCurrentHistoryIndex(newIndex);
+      loadCanvasState(drawingHistory[newIndex]);
+    }
+  };
+
+  const handleRedo = () => {
+    if (currentHistoryIndex < drawingHistory.length - 1) {
+      const newIndex = currentHistoryIndex + 1;
+      setCurrentHistoryIndex(newIndex);
+      loadCanvasState(drawingHistory[newIndex]);
+    }
+  };
+
+  const loadCanvasState = (imageData) => {
+    if (!canvasRef.current) return;
+    
+    const img = new Image();
+    img.onload = () => {
+      const ctx = canvasRef.current.getContext('2d');
+      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      ctx.drawImage(img, 0, 0);
+      drawGrid(ctx);
+    };
+    img.src = imageData;
+  };
+
+  const clearCanvas = () => {
+    if (!canvasRef.current) return;
+    const ctx = canvasRef.current.getContext('2d');
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    drawGrid(ctx);
+    saveCanvasState();
+  };
 
   const handleSave = () => {
     // Implement save functionality
@@ -73,8 +255,11 @@ const Canvas = () => {
   };
 
   const handleDownload = () => {
-    // Implement download functionality
-    console.log('Downloading diagram...');
+    if (!canvasRef.current) return;
+    const link = document.createElement('a');
+    link.download = `diagram-${id || 'new'}.png`;
+    link.href = canvasRef.current.toDataURL();
+    link.click();
   };
 
   const handleShare = () => {
@@ -90,11 +275,11 @@ const Canvas = () => {
   const tools = [
     { id: 'select', icon: '👆', label: 'Select' },
     { id: 'draw', icon: '✏️', label: 'Draw' },
+    { id: 'line', icon: '➖', label: 'Line' },
     { id: 'rectangle', icon: '⬜', label: 'Rectangle' },
     { id: 'circle', icon: '⭕', label: 'Circle' },
     { id: 'text', icon: 'T', label: 'Text' },
-    { id: 'arrow', icon: '➡️', label: 'Arrow' },
-    { id: 'line', icon: '➖', label: 'Line' }
+    { id: 'arrow', icon: '➡️', label: 'Arrow' }
   ];
 
   return (
@@ -179,14 +364,33 @@ const Canvas = () => {
           <div className="bg-white border-b border-gray-200 px-4 py-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <button className="p-2 text-gray-600 hover:text-gray-900 transition-colors">
+                <button 
+                  onClick={handleUndo}
+                  disabled={currentHistoryIndex <= 0}
+                  className={`p-2 transition-colors ${
+                    currentHistoryIndex <= 0 
+                      ? 'text-gray-400 cursor-not-allowed' 
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
                   <Undo size={16} />
                 </button>
-                <button className="p-2 text-gray-600 hover:text-gray-900 transition-colors">
+                <button 
+                  onClick={handleRedo}
+                  disabled={currentHistoryIndex >= drawingHistory.length - 1}
+                  className={`p-2 transition-colors ${
+                    currentHistoryIndex >= drawingHistory.length - 1 
+                      ? 'text-gray-400 cursor-not-allowed' 
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
                   <Redo size={16} />
                 </button>
                 <div className="h-6 w-px bg-gray-300"></div>
-                <button className="p-2 text-gray-600 hover:text-gray-900 transition-colors">
+                <button 
+                  onClick={clearCanvas}
+                  className="p-2 text-gray-600 hover:text-gray-900 transition-colors"
+                >
                   <Trash2 size={16} />
                 </button>
               </div>
@@ -216,6 +420,39 @@ const Canvas = () => {
                 height={800}
                 className="border border-gray-300 shadow-lg cursor-crosshair"
                 style={{ maxWidth: '100%', maxHeight: '100%' }}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={() => setIsDrawing(false)}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  if (e.touches.length === 1) {
+                    const touch = e.touches[0];
+                    const mouseEvent = new MouseEvent('mousedown', {
+                      clientX: touch.clientX,
+                      clientY: touch.clientY
+                    });
+                    handleMouseDown(mouseEvent);
+                  }
+                }}
+                onTouchMove={(e) => {
+                  e.preventDefault();
+                  if (e.touches.length === 1) {
+                    const touch = e.touches[0];
+                    const mouseEvent = new MouseEvent('mousemove', {
+                      clientX: touch.clientX,
+                      clientY: touch.clientY
+                    });
+                    handleMouseMove(mouseEvent);
+                  }
+                }}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  if (e.touches.length === 0) {
+                    const mouseEvent = new MouseEvent('mouseup', {});
+                    handleMouseUp(mouseEvent);
+                  }
+                }}
               />
             </div>
           </div>
@@ -246,21 +483,43 @@ const Canvas = () => {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Fill Color
+                    Drawing Color
                   </label>
-                  <input type="color" className="w-full h-10 rounded border border-gray-300" />
+                  <input 
+                    type="color" 
+                    value={drawingColor}
+                    onChange={(e) => setDrawingColor(e.target.value)}
+                    className="w-full h-10 rounded border border-gray-300" 
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Stroke Color
+                    Stroke Width: {strokeWidth}px
                   </label>
-                  <input type="color" className="w-full h-10 rounded border border-gray-300" />
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="20" 
+                    value={strokeWidth}
+                    onChange={(e) => setStrokeWidth(parseInt(e.target.value))}
+                    className="w-full" 
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Stroke Width
+                    Current Tool
                   </label>
-                  <input type="range" min="1" max="20" className="w-full" />
+                  <div className="text-sm text-gray-900 capitalize bg-gray-100 px-3 py-2 rounded">
+                    {selectedTool}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cursor Position
+                  </label>
+                  <div className="text-sm text-gray-900 bg-gray-100 px-3 py-2 rounded">
+                    X: {Math.round(cursorPosition.x)}, Y: {Math.round(cursorPosition.y)}
+                  </div>
                 </div>
               </div>
             </div>
