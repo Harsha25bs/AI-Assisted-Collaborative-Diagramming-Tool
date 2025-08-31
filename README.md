@@ -147,7 +147,7 @@ DATABASE_URL=postgresql://user:password@localhost/diagramming_tool
 REDIS_URL=redis://localhost:6379
 
 # Security
-SECRET_KEY=your-secret-key-change-in-production
+SECRET_KEY=8a52c334d2bec68e7866568477528270
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 
